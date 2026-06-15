@@ -7,7 +7,7 @@ from datetime import datetime
 # ── Configuration de la page et Thème Sombre ──────────────────────────────────
 st.set_page_config(page_title="TKL ZEN Portfolio", page_icon="📈", layout="wide")
 
-# Injection CSS pour forcer le Dark Mode avec textes blancs et styliser les cartes
+# Injection CSS pour forcer le Dark Mode et styliser les conteneurs comme la maquette
 st.markdown("""
     <style>
     .stApp {
@@ -17,8 +17,9 @@ st.markdown("""
     h1, h2, h3, p, span, label {
         color: #FFFFFF !important;
     }
+    /* Style des cartes de métriques */
     div[data-testid="metric-container"] {
-        background-color: #161D2E;
+        background-color: #111625;
         border: 1px solid #1E2D45;
         padding: 15px;
         border-radius: 12px;
@@ -26,6 +27,7 @@ st.markdown("""
     div[data-testid="stMetricValue"] > div {
         color: #00D4AA !important;
     }
+    /* Style des Onglets */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #111827;
         border-radius: 8px 8px 0 0;
@@ -37,6 +39,14 @@ st.markdown("""
     .stTabs [aria-selected="true"] {
         color: #00D4AA !important;
         border-bottom: 2px solid #00D4AA;
+    }
+    /* Style de la carte personnalisée Dashboard */
+    .dashboard-card {
+        background-color: #111625;
+        border: 1px solid #1E2D45;
+        padding: 24px;
+        border-radius: 16px;
+        margin-bottom: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -51,7 +61,6 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    # Écran de connexion
     st.write("")
     st.write("")
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -71,14 +80,13 @@ def check_password():
 # ── Lancement de l'application après authentification ─────────────────────────
 if check_password():
 
-    # Correspondance des Tickers locaux avec les symboles officiels Yahoo Finance (.PA pour Paris)
+    # Configuration des Tickers Yahoo Finance
     YF_MAPPING = {
         "EWLD": "EWLD.PA", "PE500": "PE500.PA", "PUST": "PUST.PA", "PCEU": "PCEU.PA",
         "GUARD": "GUARD.PA", "SU": "SU.PA", "AI": "AI.PA", "AM": "AM.PA",
         "HO": "HO.PA", "STM": "STMPA.PA", "SAN": "SAN.PA", "PAEEM": "PAEEM.PA", "TTE": "TTE.PA"
     }
 
-    # Fonction de récupération des cours (mise en cache 15 min pour éviter de ralentir l'appli)
     @st.cache_data(ttl=900)
     def fetch_live_prices():
         live_prices = {}
@@ -89,10 +97,10 @@ if check_password():
                 if not hist.empty:
                     live_prices[ticker] = float(hist['Close'].iloc[-1])
             except Exception:
-                pass # Conserve le cours de base en cas de bug réseau
+                pass
         return live_prices
 
-    # ── Données Initiales (avec cours de secours) ─────────────────────────────
+    # ── Données Initiales ─────────────────────────────────────────────────────
     INITIAL_PORTFOLIO = [
         {"id": 1, "nom": "Amundi PEA MSCI World", "ticker": "EWLD", "type": "ETF", "secteur": "Monde", "couche": "Socle ZEN", "alloc": 20, "cours": 30.5, "quantite": 0, "prixAchat": 30.5},
         {"id": 2, "nom": "Amundi PEA S&P 500", "ticker": "PE500", "type": "ETF", "secteur": "USA", "couche": "Socle ZEN", "alloc": 15, "cours": 42.2, "quantite": 0, "prixAchat": 42.2},
@@ -118,12 +126,10 @@ if check_password():
         "Émergents": "#F97316", "Énergie": "#FBBF24"
     }
 
-    # ── Gestion de l'état (Session State) ─────────────────────────────────────
     if 'init' not in st.session_state:
         base_df = pd.DataFrame(INITIAL_PORTFOLIO)
         base_df['momentum'] = base_df['id'].map(MOMENTUM_SCORES)
         
-        # Injection automatique des prix du marché en direct au démarrage
         with st.spinner("Extraction des cours en direct..."):
             market_prices = fetch_live_prices()
             for tk, price in market_prices.items():
@@ -137,21 +143,29 @@ if check_password():
 
     df = st.session_state.df
 
-    # Calculs globaux réactifs
+    # Calculs réactifs de performance et de poids
     df['valeur'] = df['cours'] * df['quantite']
     df['pru_total'] = df['prixAchat'] * df['quantite']
     df['plus_value'] = df['valeur'] - df['pru_total']
 
     valeur_actifs = df['valeur'].sum()
+    
+    # Intégration du calcul d'allocation réelle en %
+    if valeur_actifs > 0:
+        df['alloc_actuelle'] = (df['valeur'] / valeur_actifs) * 100
+    else:
+        df['alloc_actuelle'] = 0.0
+
     fonds_investis = df['pru_total'].sum()
     total_portefeuille = valeur_actifs + st.session_state.cash
     plus_value_globale = total_portefeuille - st.session_state.capital_initial
+    total_alloc_cible = df['alloc'].sum()
 
     # ── En-tête ───────────────────────────────────────────────────────────────
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         st.markdown("## 📈 TKL ZEN Portfolio")
-        st.caption("PEA Fortuneo · Stratégie Momentum · Flux de cours Yahoo Finance 🟢")
+        st.caption("PEA Fortuneo · Stratégie Momentum · Flux Temps Réel 🟢")
     with col2:
         nouveau_capital = st.number_input("Capital Initial (€)", value=st.session_state.capital_initial, step=100.0)
         if nouveau_capital != st.session_state.capital_initial:
@@ -160,17 +174,17 @@ if check_password():
             st.session_state.cash += diff
             st.rerun()
     with col3:
-        st.write("") # Écart alignement
+        st.write("") 
         st.write("") 
         if st.button("🔄 Rafraîchir les cours", use_container_width=True):
-            st.cache_data.clear() # Force la suppression du cache temporaire
+            st.cache_data.clear()
             with st.spinner("Actualisation..."):
                 market_prices = fetch_live_prices()
                 for tk, price in market_prices.items():
                     st.session_state.df.loc[st.session_state.df['ticker'] == tk, 'cours'] = price
             st.rerun()
 
-    # ── Navigation par Onglets ────────────────────────────────────────────────
+    # ── Onglets ───────────────────────────────────────────────────────────────
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "💼 Portefeuille", "📋 Transactions", "🔥 Momentum"])
 
     # ── ONGLET 1 : DASHBOARD ──
@@ -182,56 +196,95 @@ if check_password():
         m4.metric("Liquidités (Cash)", f"{st.session_state.cash:.0f} €", f"{(st.session_state.cash/total_portefeuille)*100 if total_portefeuille>0 else 100:.1f} % du compte", delta_color="off")
 
         st.divider()
+        
         c1, c2 = st.columns(2)
         
         with c1:
-            st.markdown("### Répartition par Couches")
+            st.markdown('<div class="dashboard-card"><h3>Répartition stratégique</h3>', unsafe_allow_html=True)
             if valeur_actifs > 0:
                 df_couche = df[df['quantite'] > 0].groupby('couche')['valeur'].sum().reset_index()
-                fig = px.pie(df_couche, values='valeur', names='couche', hole=0.6, 
+                fig = px.pie(df_couche, values='valeur', names='couche', hole=0.7, 
                              color='couche', color_discrete_map=COLORS)
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", margin=dict(t=0, b=0, l=0, r=0))
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                    font_color="white", margin=dict(t=10, b=10, l=10, r=10),
+                    legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.1)
+                )
+                fig.update_traces(textinfo='percent', textfont_size=14)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Aucun actif en portefeuille pour le moment.")
+                st.info("Aucun actif en portefeuille. Les répartitions apparaîtront ici après vos achats.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
         with c2:
-            st.markdown("### Exposition Sectorielle Active")
+            st.markdown('<div class="dashboard-card"><h3>Répartition sectorielle</h3>', unsafe_allow_html=True)
             if valeur_actifs > 0:
                 df_secteur = df[df['quantite'] > 0].groupby('secteur')['valeur'].sum().reset_index()
-                fig2 = px.pie(df_secteur, values='valeur', names='secteur', hole=0.6,
-                              color='secteur', color_discrete_map=COLORS)
-                fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", margin=dict(t=0, b=0, l=0, r=0))
-                st.plotly_chart(fig2, use_container_width=True)
+                df_secteur['pct'] = (df_secteur['valeur'] / valeur_actifs) * 100
+                df_secteur = df_secteur.sort_values(by='pct', ascending=False)
+                
+                html_progress_bars = ""
+                for _, row in df_secteur.iterrows():
+                    sect = row['secteur']
+                    pct = row['pct']
+                    color = COLORS.get(sect, "#3B82F6")
+                    
+                    html_progress_bars += f"""
+                    <div style="margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                            <span style="color: #94A3B8; font-size: 14px; font-weight: 500;">{sect}</span>
+                            <span style="color: {color}; font-weight: bold; font-size: 14px;">{pct:.0f}%</span>
+                        </div>
+                        <div style="background-color: #1E293B; border-radius: 999px; height: 8px; width: 100%;">
+                            <div style="background-color: {color}; height: 8px; border-radius: 999px; width: {pct}%;"></div>
+                        </div>
+                    </div>
+                    """
+                st.markdown(html_progress_bars, unsafe_allow_html=True)
             else:
-                st.info("Aucun actif en portefeuille pour le moment.")
+                st.info("Aucun actif en portefeuille pour calculer les secteurs.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── ONGLET 2 : PORTEFEUILLE ──
+    # ── ONGLET 2 : PORTEFEUILLE (GESTION DES ALLOCATIONS) ──
     with tab2:
-        st.markdown("### Gestion du Portefeuille Actif")
-        st.caption("Les cours ci-dessous proviennent en direct des marchés. Vous pouvez forcer une valeur manuellement si nécessaire.")
+        st.markdown("### Gestion du Portefeuille Actif & Allocations")
+        st.caption("Vous pouvez ajuster vos pourcentages cibles directement dans la colonne **'Alloc. Cible (%)'**.")
         
-        colonnes_visibles = ['ticker', 'nom', 'couche', 'secteur', 'quantite', 'cours', 'prixAchat', 'valeur', 'plus_value']
+        # Barre de contrôle de la somme globale des allocations cibles
+        if total_alloc_cible == 100:
+            st.success(f"🎯 Total des allocations cibles : {total_alloc_cible}% (Parfaitement équilibré)")
+        elif total_alloc_cible > 100:
+            st.warning(f"⚠️ Total des allocations cibles : {total_alloc_cible}% (Supérieur à 100%, veuillez ajuster)")
+        else:
+            st.info(f"ℹ️ Total des allocations cibles : {total_alloc_cible}% (Le total cible actuel est inférieur à 100%)")
+
+        # Inclusion des colonnes d'allocations dans l'éditeur de données
+        colonnes_visibles = ['ticker', 'nom', 'quantite', 'cours', 'prixAchat', 'valeur', 'plus_value', 'alloc', 'alloc_actuelle']
         df_display = df[colonnes_visibles].copy()
         
         edited_df = st.data_editor(
             df_display,
             column_config={
+                "alloc": st.column_config.NumberColumn("Alloc. Cible (%)", format="%d %%", min_value=0, max_value=100, step=1),
+                "alloc_actuelle": st.column_config.NumberColumn("Alloc. Actuelle (%)", format="%.1f %%", disabled=True),
                 "cours": st.column_config.NumberColumn("Cours Marché (€)", format="%.2f", step=0.01),
                 "ticker": "Ticker", "nom": "Actif", "quantite": "Qté",
                 "prixAchat": st.column_config.NumberColumn("PRU (€)", disabled=True, format="%.2f"),
                 "valeur": st.column_config.NumberColumn("Valeur (€)", disabled=True, format="%.2f"),
                 "plus_value": st.column_config.NumberColumn("+/- Value (€)", disabled=True, format="%.2f"),
             },
-            disabled=["ticker", "nom", "couche", "secteur", "quantite", "prixAchat", "valeur", "plus_value"],
+            disabled=["ticker", "nom", "quantite", "prixAchat", "valeur", "plus_value", "alloc_actuelle"],
             hide_index=True,
             use_container_width=True
         )
         
+        # Prise en compte immédiate des modifications (cours OU allocation)
         for i, row in edited_df.iterrows():
             nouveau_cours = row['cours']
-            if st.session_state.df.at[i, 'cours'] != nouveau_cours:
+            nouvelle_alloc = row['alloc']
+            if st.session_state.df.at[i, 'cours'] != nouveau_cours or st.session_state.df.at[i, 'alloc'] != nouvelle_alloc:
                 st.session_state.df.at[i, 'cours'] = nouveau_cours
+                st.session_state.df.at[i, 'alloc'] = nouvelle_alloc
                 st.rerun()
 
         st.divider()
@@ -319,14 +372,17 @@ if check_password():
         df_mom = df[['ticker', 'nom', 'couche', 'secteur', 'momentum']].sort_values(by='momentum', ascending=False).reset_index(drop=True)
         
         def color_momentum(val):
-            if isinstance(val, (int, float)):
-                if val >= 70: return 'color: #10B981; font-weight: bold;'
-                elif val >= 55: return 'color: #F59E0B; font-weight: bold;'
-                else: return 'color: #EF4444; font-weight: bold;'
-            elif isinstance(val, str):
-                if "Achat" in val: return 'color: #10B981; font-weight: bold;'
-                elif "Statu" in val: return 'color: #F59E0B; font-weight: bold;'
-                elif "Allègement" in val: return 'color: #EF4444; font-weight: bold;'
+            try:
+                if isinstance(val, (int, float)):
+                    if val >= 70: return 'color: #10B981; font-weight: bold;'
+                    elif val >= 55: return 'color: #F59E0B; font-weight: bold;'
+                    else: return 'color: #EF4444; font-weight: bold;'
+                elif isinstance(val, str):
+                    if "⚡" in val or "Achat" in val: return 'color: #10B981; font-weight: bold;'
+                    elif "⏸" in val or "Statu" in val: return 'color: #F59E0B; font-weight: bold;'
+                    elif "⚠️" in val or "Allègement" in val: return 'color: #EF4444; font-weight: bold;'
+            except Exception:
+                pass
             return ''
             
         def momentum_action(val):
@@ -336,8 +392,5 @@ if check_password():
             
         df_mom['Action'] = df_mom['momentum'].apply(momentum_action)
         
-        st.dataframe(
-            df_mom.style.map(color_momentum, subset=['momentum', 'Action']),
-            hide_index=True,
-            use_container_width=True
-        )
+        styled_df = df_mom.style.map(color_momentum, subset=['momentum', 'Action'])
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
