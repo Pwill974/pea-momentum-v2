@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import yfinance as yf
 from datetime import datetime
 
 # ── Configuration de la page et Thème Sombre ──────────────────────────────────
@@ -70,7 +71,28 @@ def check_password():
 # ── Lancement de l'application après authentification ─────────────────────────
 if check_password():
 
-    # ── Données Initiales ─────────────────────────────────────────────────────
+    # Correspondance des Tickers locaux avec les symboles officiels Yahoo Finance (.PA pour Paris)
+    YF_MAPPING = {
+        "EWLD": "EWLD.PA", "PE500": "PE500.PA", "PUST": "PUST.PA", "PCEU": "PCEU.PA",
+        "GUARD": "GUARD.PA", "SU": "SU.PA", "AI": "AI.PA", "AM": "AM.PA",
+        "HO": "HO.PA", "STM": "STMPA.PA", "SAN": "SAN.PA", "PAEEM": "PAEEM.PA", "TTE": "TTE.PA"
+    }
+
+    # Fonction de récupération des cours (mise en cache 15 min pour éviter de ralentir l'appli)
+    @st.cache_data(ttl=900)
+    def fetch_live_prices():
+        live_prices = {}
+        for ticker, yf_symbol in YF_MAPPING.items():
+            try:
+                stock = yf.Ticker(yf_symbol)
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    live_prices[ticker] = float(hist['Close'].iloc[-1])
+            except Exception:
+                pass # Conserve le cours de base en cas de bug réseau
+        return live_prices
+
+    # ── Données Initiales (avec cours de secours) ─────────────────────────────
     INITIAL_PORTFOLIO = [
         {"id": 1, "nom": "Amundi PEA MSCI World", "ticker": "EWLD", "type": "ETF", "secteur": "Monde", "couche": "Socle ZEN", "alloc": 20, "cours": 30.5, "quantite": 0, "prixAchat": 30.5},
         {"id": 2, "nom": "Amundi PEA S&P 500", "ticker": "PE500", "type": "ETF", "secteur": "USA", "couche": "Socle ZEN", "alloc": 15, "cours": 42.2, "quantite": 0, "prixAchat": 42.2},
@@ -98,8 +120,16 @@ if check_password():
 
     # ── Gestion de l'état (Session State) ─────────────────────────────────────
     if 'init' not in st.session_state:
-        st.session_state.df = pd.DataFrame(INITIAL_PORTFOLIO)
-        st.session_state.df['momentum'] = st.session_state.df['id'].map(MOMENTUM_SCORES)
+        base_df = pd.DataFrame(INITIAL_PORTFOLIO)
+        base_df['momentum'] = base_df['id'].map(MOMENTUM_SCORES)
+        
+        # Injection automatique des prix du marché en direct au démarrage
+        with st.spinner("Extraction des cours en direct..."):
+            market_prices = fetch_live_prices()
+            for tk, price in market_prices.items():
+                base_df.loc[base_df['ticker'] == tk, 'cours'] = price
+                
+        st.session_state.df = base_df
         st.session_state.transactions = []
         st.session_state.capital_initial = 10000.0
         st.session_state.cash = 10000.0
@@ -107,7 +137,7 @@ if check_password():
 
     df = st.session_state.df
 
-    # Calculs globaux
+    # Calculs globaux réactifs
     df['valeur'] = df['cours'] * df['quantite']
     df['pru_total'] = df['prixAchat'] * df['quantite']
     df['plus_value'] = df['valeur'] - df['pru_total']
@@ -118,16 +148,26 @@ if check_password():
     plus_value_globale = total_portefeuille - st.session_state.capital_initial
 
     # ── En-tête ───────────────────────────────────────────────────────────────
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         st.markdown("## 📈 TKL ZEN Portfolio")
-        st.caption("PEA Fortuneo · Stratégie Momentum")
+        st.caption("PEA Fortuneo · Stratégie Momentum · Flux de cours Yahoo Finance 🟢")
     with col2:
         nouveau_capital = st.number_input("Capital Initial (€)", value=st.session_state.capital_initial, step=100.0)
         if nouveau_capital != st.session_state.capital_initial:
             diff = nouveau_capital - st.session_state.capital_initial
             st.session_state.capital_initial = nouveau_capital
             st.session_state.cash += diff
+            st.rerun()
+    with col3:
+        st.write("") # Écart alignement
+        st.write("") 
+        if st.button("🔄 Rafraîchir les cours", use_container_width=True):
+            st.cache_data.clear() # Force la suppression du cache temporaire
+            with st.spinner("Actualisation..."):
+                market_prices = fetch_live_prices()
+                for tk, price in market_prices.items():
+                    st.session_state.df.loc[st.session_state.df['ticker'] == tk, 'cours'] = price
             st.rerun()
 
     # ── Navigation par Onglets ────────────────────────────────────────────────
@@ -169,7 +209,7 @@ if check_password():
     # ── ONGLET 2 : PORTEFEUILLE ──
     with tab2:
         st.markdown("### Gestion du Portefeuille Actif")
-        st.caption("Modifiez directement la colonne 'cours' dans le tableau pour mettre à jour les prix du marché.")
+        st.caption("Les cours ci-dessous proviennent en direct des marchés. Vous pouvez forcer une valeur manuellement si nécessaire.")
         
         colonnes_visibles = ['ticker', 'nom', 'couche', 'secteur', 'quantite', 'cours', 'prixAchat', 'valeur', 'plus_value']
         df_display = df[colonnes_visibles].copy()
@@ -177,7 +217,7 @@ if check_password():
         edited_df = st.data_editor(
             df_display,
             column_config={
-                "cours": st.column_config.NumberColumn("Cours Actuel (€)", format="%.2f", step=0.1),
+                "cours": st.column_config.NumberColumn("Cours Marché (€)", format="%.2f", step=0.01),
                 "ticker": "Ticker", "nom": "Actif", "quantite": "Qté",
                 "prixAchat": st.column_config.NumberColumn("PRU (€)", disabled=True, format="%.2f"),
                 "valeur": st.column_config.NumberColumn("Valeur (€)", disabled=True, format="%.2f"),
@@ -278,7 +318,6 @@ if check_password():
         
         df_mom = df[['ticker', 'nom', 'couche', 'secteur', 'momentum']].sort_values(by='momentum', ascending=False).reset_index(drop=True)
         
-        # FIX : Sécurisation de la coloration selon le type de la valeur
         def color_momentum(val):
             if isinstance(val, (int, float)):
                 if val >= 70: return 'color: #10B981; font-weight: bold;'
