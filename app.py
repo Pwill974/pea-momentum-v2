@@ -143,23 +143,26 @@ if check_password():
 
     df = st.session_state.df
 
-    # Calculs réactifs de performance et de poids
+    # ── Calculs Réactifs Globaux ──────────────────────────────────────────────
     df['valeur'] = df['cours'] * df['quantite']
     df['pru_total'] = df['prixAchat'] * df['quantite']
     df['plus_value'] = df['valeur'] - df['pru_total']
 
     valeur_actifs = df['valeur'].sum()
-    
-    # Intégration du calcul d'allocation réelle en %
-    if valeur_actifs > 0:
-        df['alloc_actuelle'] = (df['valeur'] / valeur_actifs) * 100
+    total_portefeuille = valeur_actifs + st.session_state.cash
+    fonds_investis = df['pru_total'].sum()
+    plus_value_globale = total_portefeuille - st.session_state.capital_initial
+    total_alloc_cible = df['alloc'].sum()
+
+    # Calcul des allocations actuelles réelles
+    if total_portefeuille > 0:
+        df['alloc_actuelle'] = (df['valeur'] / total_portefeuille) * 100
     else:
         df['alloc_actuelle'] = 0.0
 
-    fonds_investis = df['pru_total'].sum()
-    total_portefeuille = valeur_actifs + st.session_state.cash
-    plus_value_globale = total_portefeuille - st.session_state.capital_initial
-    total_alloc_cible = df['alloc'].sum()
+    # CALCUL DE LA QUANTITÉ CIBLE IDEALE (Basé sur la valeur totale du portefeuille)
+    df['valeur_cible_theorique'] = total_portefeuille * (df['alloc'] / 100)
+    df['qte_cible'] = df.apply(lambda r: int(r['valeur_cible_theorique'] / r['cours']) if r['cours'] > 0 else 0, axis=1)
 
     # ── En-tête ───────────────────────────────────────────────────────────────
     col1, col2, col3 = st.columns([3, 1, 1])
@@ -245,12 +248,12 @@ if check_password():
                 st.info("Aucun actif en portefeuille pour calculer les secteurs.")
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── ONGLET 2 : PORTEFEUILLE (GESTION DES ALLOCATIONS) ──
+    # ── ONGLET 2 : PORTEFEUILLE (GESTION DES QUANTITÉS ET DE L'ALLOCATION AUTOMATIQUE) ──
     with tab2:
         st.markdown("### Gestion du Portefeuille Actif & Allocations")
-        st.caption("Vous pouvez ajuster vos pourcentages cibles directement dans la colonne **'Alloc. Cible (%)'**.")
+        st.caption("Ajuste tes % cibles dans **Alloc. Cible (%)** puis utilise le bouton robot ci-dessous pour répartir tes lignes instantanément.")
         
-        # Barre de contrôle de la somme globale des allocations cibles
+        # Barre d'état des allocations
         if total_alloc_cible == 100:
             st.success(f"🎯 Total des allocations cibles : {total_alloc_cible}% (Parfaitement équilibré)")
         elif total_alloc_cible > 100:
@@ -258,8 +261,34 @@ if check_password():
         else:
             st.info(f"ℹ️ Total des allocations cibles : {total_alloc_cible}% (Le total cible actuel est inférieur à 100%)")
 
-        # Inclusion des colonnes d'allocations dans l'éditeur de données
-        colonnes_visibles = ['ticker', 'nom', 'quantite', 'cours', 'prixAchat', 'valeur', 'plus_value', 'alloc', 'alloc_actuelle']
+        # BOUTON ROBOT DE RÉPARTITION AUTOMATIQUE
+        if st.button("🤖 Répartir automatiquement les quantités (Calibrage Cible)", use_container_width=True, type="primary"):
+            capital_total_actuel = total_portefeuille
+            valeur_totale_allouee = 0
+            
+            # Application de la formule sur chaque ligne de la session_state
+            for idx, row in st.session_state.df.iterrows():
+                # Calcul de la enveloppe budgétaire dédiée à cet actif
+                budget_actif = capital_total_actuel * (row['alloc'] / 100)
+                # Calcul du nombre de parts entières achetables
+                qte_auto = int(budget_actif / row['cours']) if row['cours'] > 0 else 0
+                
+                st.session_state.df.at[idx, 'quantite'] = qte_auto
+                # Si la ligne était à 0, on initialise le PRU au cours actuel du marché
+                if qte_auto > 0 and st.session_state.df.at[idx, 'prixAchat'] == row['cours']:
+                    st.session_state.df.at[idx, 'prixAchat'] = row['cours']
+                
+                valeur_totale_allouee += qte_auto * row['cours']
+            
+            # Ajustement du cash restant avec le reliquat non investi
+            st.session_state.cash = capital_total_actuel - valeur_totale_allouee
+            st.success("✅ Répartition automatique appliquée avec succès sur l'ensemble de vos actifs !")
+            st.rerun()
+
+        st.divider()
+
+        # Liste complète incluant la colonne Qté Cible calculée
+        colonnes_visibles = ['ticker', 'nom', 'alloc', 'alloc_actuelle', 'quantite', 'qte_cible', 'cours', 'valeur', 'plus_value']
         df_display = df[colonnes_visibles].copy()
         
         edited_df = st.data_editor(
@@ -267,18 +296,19 @@ if check_password():
             column_config={
                 "alloc": st.column_config.NumberColumn("Alloc. Cible (%)", format="%d %%", min_value=0, max_value=100, step=1),
                 "alloc_actuelle": st.column_config.NumberColumn("Alloc. Actuelle (%)", format="%.1f %%", disabled=True),
+                "quantite": st.column_config.NumberColumn("Qté Actuelle", format="%d", disabled=True),
+                "qte_cible": st.column_config.NumberColumn("⚠️ Qté Cible", format="%d", disabled=True, help="Quantité idéale théorique selon vos objectifs."),
                 "cours": st.column_config.NumberColumn("Cours Marché (€)", format="%.2f", step=0.01),
-                "ticker": "Ticker", "nom": "Actif", "quantite": "Qté",
-                "prixAchat": st.column_config.NumberColumn("PRU (€)", disabled=True, format="%.2f"),
+                "ticker": "Ticker", "nom": "Actif",
                 "valeur": st.column_config.NumberColumn("Valeur (€)", disabled=True, format="%.2f"),
                 "plus_value": st.column_config.NumberColumn("+/- Value (€)", disabled=True, format="%.2f"),
             },
-            disabled=["ticker", "nom", "quantite", "prixAchat", "valeur", "plus_value", "alloc_actuelle"],
+            disabled=["ticker", "nom", "quantite", "qte_cible", "alloc_actuelle", "valeur", "plus_value"],
             hide_index=True,
             use_container_width=True
         )
         
-        # Prise en compte immédiate des modifications (cours OU allocation)
+        # Enregistrement en direct si modifications manuelles de l'allocation ou des cours
         for i, row in edited_df.iterrows():
             nouveau_cours = row['cours']
             nouvelle_alloc = row['alloc']
@@ -288,7 +318,7 @@ if check_password():
                 st.rerun()
 
         st.divider()
-        st.markdown("### 💱 Passage d'Ordres")
+        st.markdown("### 💱 Passage d'Ordres Manuels")
         
         col_actif, col_qty, col_action = st.columns([2, 1, 1])
         with col_actif:
