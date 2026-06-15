@@ -41,9 +41,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Fonction de Vérification du Mot de Passe ──────────────────────────────────
+# ── Fonction de Vérification du Mot de Passe Sécurisé ─────────────────────────
 def check_password():
-    """Retourne True si l'utilisateur est authentifié."""
+    """Retourne True si l'utilisateur est authentifié via st.secrets."""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
@@ -58,11 +58,8 @@ def check_password():
         st.markdown("<h2 style='text-align: center;'>🔒 Accès Sécurisé</h2>", unsafe_allow_html=True)
         password_input = st.text_input("Entrez le mot de passe :", type="password")
         
-        # Vous pouvez changer "Zen2026" par le mot de passe de votre choix ici
         if st.button("Se connecter", use_container_width=True):
-    
-if password_input == st.secrets["password"]:
-
+            if password_input == st.secrets["password"]:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -70,7 +67,7 @@ if password_input == st.secrets["password"]:
     return False
 
 
-# ── Lancement de l'application si le mot de passe est correct ─────────────────
+# ── Lancement de l'application après authentification ─────────────────────────
 if check_password():
 
     # ── Données Initiales ─────────────────────────────────────────────────────
@@ -126,7 +123,7 @@ if check_password():
         st.markdown("## 📈 TKL ZEN Portfolio")
         st.caption("PEA Fortuneo · Stratégie Momentum")
     with col2:
-        nouveau_capital = st.number_input("Capital Initial Déposé (€)", value=st.session_state.capital_initial, step=100.0)
+        nouveau_capital = st.number_input("Capital Initial (€)", value=st.session_state.capital_initial, step=100.0)
         if nouveau_capital != st.session_state.capital_initial:
             diff = nouveau_capital - st.session_state.capital_initial
             st.session_state.capital_initial = nouveau_capital
@@ -172,9 +169,8 @@ if check_password():
     # ── ONGLET 2 : PORTEFEUILLE ──
     with tab2:
         st.markdown("### Gestion du Portefeuille Actif")
-        st.caption("Modifiez directement la colonne 'cours' dans le tableau ci-dessous pour mettre à jour les prix du marché.")
+        st.caption("Modifiez directement la colonne 'cours' dans le tableau pour mettre à jour les prix du marché.")
         
-        # Edition des cours
         colonnes_visibles = ['ticker', 'nom', 'couche', 'secteur', 'quantite', 'cours', 'prixAchat', 'valeur', 'plus_value']
         df_display = df[colonnes_visibles].copy()
         
@@ -192,7 +188,6 @@ if check_password():
             use_container_width=True
         )
         
-        # Mise à jour des cours en session state si modifiés dans le data_editor
         for i, row in edited_df.iterrows():
             nouveau_cours = row['cours']
             if st.session_state.df.at[i, 'cours'] != nouveau_cours:
@@ -211,11 +206,10 @@ if check_password():
         with col_qty:
             qty = st.number_input("Quantité", min_value=1, value=1, step=1)
         with col_action:
-            st.write("") # Spacer
-            st.write("") # Spacer
+            st.write("")
+            st.write("")
             c_achat, c_vente = st.columns(2)
             
-            # Logique d'Achat
             if c_achat.button("✅ Acheter", use_container_width=True):
                 cout = actif['cours'] * qty
                 if cout <= st.session_state.cash:
@@ -238,7 +232,6 @@ if check_password():
                 else:
                     st.error("Liquidités insuffisantes.")
                     
-            # Logique de Vente
             if c_vente.button("❌ Vendre", use_container_width=True):
                 gain = actif['cours'] * qty
                 if qty <= actif['quantite']:
@@ -283,22 +276,18 @@ if check_password():
         st.divider()
         st.markdown("#### Classement Force Relative (Momentum Score)")
         
-        # Affichage stylisé des scores momentum
         df_mom = df[['ticker', 'nom', 'couche', 'secteur', 'momentum']].sort_values(by='momentum', ascending=False).reset_index(drop=True)
         
+        # FIX : Sécurisation de la coloration selon le type de la valeur
         def color_momentum(val):
-            # Si c'est le score (un nombre)
             if isinstance(val, (int, float)):
-                if val >= 70: return 'color: #10B981; font-weight: bold;' # Vert
-                elif val >= 55: return 'color: #F59E0B; font-weight: bold;' # Orange
-                else: return 'color: #EF4444; font-weight: bold;' # Rouge
-                
-            # Si c'est le texte de l'Action (une chaîne de caractères)
+                if val >= 70: return 'color: #10B981; font-weight: bold;'
+                elif val >= 55: return 'color: #F59E0B; font-weight: bold;'
+                else: return 'color: #EF4444; font-weight: bold;'
             elif isinstance(val, str):
                 if "Achat" in val: return 'color: #10B981; font-weight: bold;'
                 elif "Statu" in val: return 'color: #F59E0B; font-weight: bold;'
                 elif "Allègement" in val: return 'color: #EF4444; font-weight: bold;'
-                
             return ''
             
         def momentum_action(val):
