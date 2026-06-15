@@ -60,7 +60,9 @@ def check_password():
         
         # Vous pouvez changer "Zen2026" par le mot de passe de votre choix ici
         if st.button("Se connecter", use_container_width=True):
-            if password_input == "Zen2026":
+    
+if password_input == st.secrets["password"]:
+
                 st.session_state.authenticated = True
                 st.rerun()
             else:
